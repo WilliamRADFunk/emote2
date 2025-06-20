@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emote - Emotion Guessing Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #333;
+        }
+
+        .game-container {
+            background: white;
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        .game-header {
+            margin-bottom: 2rem;
+        }
+
+        .game-title {
+            font-size: 2.5rem;
+            color: #667eea;
+            margin-bottom: 0.5rem;
+            font-weight: bold;
+        }
+
+        .game-subtitle {
+            font-size: 1.1rem;
+            color: #666;
+            margin-bottom: 1rem;
+        }
+
+        .score-board {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 2rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .score-item {
+            text-align: center;
+        }
+
+        .score-label {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 0.25rem;
+        }
+
+        .score-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .emote-display {
+            font-size: 8rem;
+            margin: 2rem 0;
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            border-radius: 15px;
+            border: 3px dashed #ddd;
+        }
+
+        .question-text {
+            font-size: 1.3rem;
+            margin-bottom: 2rem;
+            color: #555;
+        }
+
+        .options-container {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .option-button {
+            padding: 1rem;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            background: white;
+            font-size: 1.1rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .option-button:hover {
+            border-color: #667eea;
+            background: #f8f9fa;
+            transform: translateY(-2px);
+        }
+
+        .option-button.correct {
+            background: #d4edda;
+            border-color: #28a745;
+            color: #155724;
+        }
+
+        .option-button.incorrect {
+            background: #f8d7da;
+            border-color: #dc3545;
+            color: #721c24;
+        }
+
+        .option-button:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .game-controls {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-2px);
+        }
+
+        .game-status {
+            margin: 1rem 0;
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        .status-playing {
+            color: #667eea;
+        }
+
+        .status-correct {
+            color: #28a745;
+        }
+
+        .status-incorrect {
+            color: #dc3545;
+        }
+
+        .status-game-over {
+            color: #764ba2;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .game-container {
+                padding: 1.5rem;
+            }
+
+            .game-title {
+                font-size: 2rem;
+            }
+
+            .emote-display {
+                font-size: 6rem;
+                height: 120px;
+            }
+
+            .options-container {
+                grid-template-columns: 1fr;
+            }
+
+            .game-controls {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 100%;
+                max-width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <h1 class="game-title">🎭 Emote</h1>
+            <p class="game-subtitle">Guess the emotion from the emoji!</p>
+        </div>
+
+        <div class="score-board">
+            <div class="score-item">
+                <div class="score-label">Score</div>
+                <div class="score-value" id="score">0</div>
+            </div>
+            <div class="score-item">
+                <div class="score-label">Level</div>
+                <div class="score-value" id="level">1</div>
+            </div>
+            <div class="score-item">
+                <div class="score-label">Lives</div>
+                <div class="score-value" id="lives">3</div>
+            </div>
+        </div>
+
+        <div class="game-status status-playing" id="game-status">
+            Ready to play? Click "Start Game" to begin!
+        </div>
+
+        <div class="emote-display" id="emote-display">
+            🎮
+        </div>
+
+        <div class="question-text" id="question-text">
+            What emotion does this emoji represent?
+        </div>
+
+        <div class="options-container" id="options-container">
+            <button class="option-button" id="option-0">Happy</button>
+            <button class="option-button" id="option-1">Sad</button>
+            <button class="option-button" id="option-2">Angry</button>
+            <button class="option-button" id="option-3">Surprised</button>
+        </div>
+
+        <div class="game-controls">
+            <button class="btn btn-primary" id="start-btn" onclick="startGame()">Start Game</button>
+            <button class="btn btn-secondary hidden" id="next-btn" onclick="nextQuestion()">Next Question</button>
+            <button class="btn btn-secondary" id="reset-btn" onclick="resetGame()">Reset Game</button>
+        </div>
+    </div>
+
+    <script>
+        // Game state variables
+        let gameState = {
+            score: 0,
+            level: 1,
+            lives: 3,
+            currentQuestion: 0,
+            isPlaying: false,
+            questions: []
+        };
+
+        // Emotion data - emojis with their corresponding emotions
+        const emotionsData = [
+            { emoji: '😊', emotion: 'Happy', options: ['Happy', 'Sad', 'Angry', 'Surprised'] },
+            { emoji: '😢', emotion: 'Sad', options: ['Happy', 'Sad', 'Excited', 'Confused'] },
+            { emoji: '😠', emotion: 'Angry', options: ['Calm', 'Sad', 'Angry', 'Happy'] },
+            { emoji: '😮', emotion: 'Surprised', options: ['Bored', 'Angry', 'Happy', 'Surprised'] },
+            { emoji: '😍', emotion: 'Love', options: ['Love', 'Hate', 'Fear', 'Disgust'] },
+            { emoji: '😰', emotion: 'Worried', options: ['Excited', 'Worried', 'Happy', 'Angry'] },
+            { emoji: '😴', emotion: 'Sleepy', options: ['Energetic', 'Sad', 'Sleepy', 'Angry'] },
+            { emoji: '🤔', emotion: 'Thinking', options: ['Confused', 'Happy', 'Thinking', 'Sad'] },
+            { emoji: '😂', emotion: 'Laughing', options: ['Crying', 'Laughing', 'Angry', 'Scared'] },
+            { emoji: '😨', emotion: 'Scared', options: ['Brave', 'Happy', 'Excited', 'Scared'] },
+            { emoji: '🥳', emotion: 'Celebrating', options: ['Mourning', 'Celebrating', 'Angry', 'Bored'] },
+            { emoji: '😔', emotion: 'Disappointed', options: ['Excited', 'Happy', 'Disappointed', 'Angry'] },
+            { emoji: '😎', emotion: 'Cool', options: ['Uncool', 'Sad', 'Cool', 'Angry'] },
+            { emoji: '🤗', emotion: 'Hugging', options: ['Pushing', 'Hugging', 'Fighting', 'Running'] },
+            { emoji: '😬', emotion: 'Awkward', options: ['Comfortable', 'Happy', 'Sad', 'Awkward'] }
+        ];
+
+        // DOM elements
+        const scoreElement = document.getElementById('score');
+        const levelElement = document.getElementById('level');
+        const livesElement = document.getElementById('lives');
+        const gameStatusElement = document.getElementById('game-status');
+        const emoteDisplayElement = document.getElementById('emote-display');
+        const questionTextElement = document.getElementById('question-text');
+        const optionsContainer = document.getElementById('options-container');
+        const startBtn = document.getElementById('start-btn');
+        const nextBtn = document.getElementById('next-btn');
+        const resetBtn = document.getElementById('reset-btn');
+
+        // Initialize game
+        function initGame() {
+            updateDisplay();
+            generateQuestions();
+        }
+
+        // Generate random questions for the current level
+        function generateQuestions() {
+            gameState.questions = [];
+            const questionsPerLevel = Math.min(5 + gameState.level, 10);
+            
+            for (let i = 0; i < questionsPerLevel; i++) {
+                const randomEmotion = emotionsData[Math.floor(Math.random() * emotionsData.length)];
+                const shuffledOptions = shuffleArray([...randomEmotion.options]);
+                
+                gameState.questions.push({
+                    emoji: randomEmotion.emoji,
+                    correctAnswer: randomEmotion.emotion,
+                    options: shuffledOptions
+                });
+            }
+        }
+
+        // Shuffle array utility function
+        function shuffleArray(array) {
+            const shuffled = [...array];
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            return shuffled;
+        }
+
+        // Start the game
+        function startGame() {
+            gameState.isPlaying = true;
+            gameState.currentQuestion = 0;
+            startBtn.classList.add('hidden');
+            nextBtn.classList.remove('hidden');
+            
+            updateGameStatus('Let\'s play! Choose the correct emotion.', 'status-playing');
+            showQuestion();
+        }
+
+        // Show current question
+        function showQuestion() {
+            if (gameState.currentQuestion >= gameState.questions.length) {
+                levelUp();
+                return;
+            }
+
+            const question = gameState.questions[gameState.currentQuestion];
+            emoteDisplayElement.textContent = question.emoji;
+            
+            // Update option buttons
+            const optionButtons = optionsContainer.querySelectorAll('.option-button');
+            optionButtons.forEach((button, index) => {
+                button.textContent = question.options[index];
+                button.className = 'option-button';
+                button.disabled = false;
+                button.onclick = () => selectAnswer(question.options[index], button);
+            });
+
+            nextBtn.style.display = 'none';
+        }
+
+        // Handle answer selection
+        function selectAnswer(selectedAnswer, buttonElement) {
+            const question = gameState.questions[gameState.currentQuestion];
+            const isCorrect = selectedAnswer === question.correctAnswer;
+            
+            // Disable all buttons
+            const optionButtons = optionsContainer.querySelectorAll('.option-button');
+            optionButtons.forEach(button => {
+                button.disabled = true;
+                if (button.textContent === question.correctAnswer) {
+                    button.classList.add('correct');
+                } else if (button === buttonElement && !isCorrect) {
+                    button.classList.add('incorrect');
+                }
+            });
+
+            if (isCorrect) {
+                gameState.score += 10 * gameState.level;
+                updateGameStatus('Correct! Well done! 🎉', 'status-correct');
+            } else {
+                gameState.lives--;
+                updateGameStatus(`Wrong! The correct answer was "${question.correctAnswer}". 😔`, 'status-incorrect');
+                
+                if (gameState.lives <= 0) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            updateDisplay();
+            nextBtn.style.display = 'inline-block';
+        }
+
+        // Move to next question
+        function nextQuestion() {
+            gameState.currentQuestion++;
+            showQuestion();
+        }
+
+        // Level up
+        function levelUp() {
+            gameState.level++;
+            updateGameStatus(`Level ${gameState.level}! Questions get harder now! 🚀`, 'status-playing');
+            generateQuestions();
+            gameState.currentQuestion = 0;
+            showQuestion();
+        }
+
+        // Game over
+        function gameOver() {
+            gameState.isPlaying = false;
+            updateGameStatus(`Game Over! Final Score: ${gameState.score} 🎮`, 'status-game-over');
+            emoteDisplayElement.textContent = '💀';
+            
+            // Hide option buttons
+            const optionButtons = optionsContainer.querySelectorAll('.option-button');
+            optionButtons.forEach(button => {
+                button.style.display = 'none';
+            });
+            
+            nextBtn.classList.add('hidden');
+            startBtn.classList.remove('hidden');
+            startBtn.textContent = 'Play Again';
+        }
+
+        // Reset game
+        function resetGame() {
+            gameState = {
+                score: 0,
+                level: 1,
+                lives: 3,
+                currentQuestion: 0,
+                isPlaying: false,
+                questions: []
+            };
+            
+            updateDisplay();
+            updateGameStatus('Ready to play? Click "Start Game" to begin!', 'status-playing');
+            emoteDisplayElement.textContent = '🎮';
+            
+            // Show option buttons
+            const optionButtons = optionsContainer.querySelectorAll('.option-button');
+            optionButtons.forEach((button, index) => {
+                button.style.display = 'block';
+                button.className = 'option-button';
+                button.disabled = false;
+                button.textContent = ['Happy', 'Sad', 'Angry', 'Surprised'][index];
+            });
+            
+            startBtn.classList.remove('hidden');
+            startBtn.textContent = 'Start Game';
+            nextBtn.classList.add('hidden');
+            
+            generateQuestions();
+        }
+
+        // Update display elements
+        function updateDisplay() {
+            scoreElement.textContent = gameState.score;
+            levelElement.textContent = gameState.level;
+            livesElement.textContent = gameState.lives;
+        }
+
+        // Update game status message
+        function updateGameStatus(message, className) {
+            gameStatusElement.textContent = message;
+            gameStatusElement.className = `game-status ${className}`;
+        }
+
+        // Initialize the game when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initGame();
+        });
+
+        // Add keyboard support
+        document.addEventListener('keydown', function(event) {
+            if (!gameState.isPlaying) return;
+            
+            const key = event.key;
+            if (key >= '1' && key <= '4') {
+                const optionIndex = parseInt(key) - 1;
+                const optionButton = document.getElementById(`option-${optionIndex}`);
+                if (optionButton && !optionButton.disabled) {
+                    optionButton.click();
+                }
+            }
+        });
+
+        // Placeholder for additional game features
+        // TODO: Add sound effects
+        // TODO: Add animations
+        // TODO: Add high score persistence
+        // TODO: Add multiplayer support
+        // TODO: Add custom emoji sets
+        // TODO: Add difficulty settings
+        // TODO: Add achievements system
+        // TODO: Add social sharing features
+    </script>
+</body>
+</html>

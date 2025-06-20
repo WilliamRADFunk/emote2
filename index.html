@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Fog of War Game</title>
+        <style>
+            body, html {
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                background-color: black;
+            }
+            canvas {
+                display: block;
+                position: absolute;
+                top: 0;
+                left: 0;
+            }
+            #coordinates {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                color: yellow;
+                font-family: monospace;
+                font-size: 16px;
+                z-index: 10;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="coordinates">0, 0</div>
+        <canvas id="backdropCanvas"></canvas>
+        <canvas id="bgGridCanvas"></canvas>
+        <canvas id="iceCanvas"></canvas>
+        <canvas id="gameCanvas"></canvas>
+        <script>
+            const coordDisplay = document.getElementById('coordinates');
+            const backdropCanvas = document.getElementById('backdropCanvas');
+            const bgGridCanvas = document.getElementById('bgGridCanvas');
+            const iceCanvas = document.getElementById('iceCanvas');
+            const canvas = document.getElementById('gameCanvas');
+            if (!backdropCanvas || !bgGridCanvas || !iceCanvas || !canvas || !coordDisplay) {
+                console.error('Canvas or coordinate display element not found');
+                throw new Error('Canvas initialization failed');
+            }
+            const backdropCtx = backdropCanvas.getContext('2d');
+            const bgCtx = bgGridCanvas.getContext('2d');
+            const iceCtx = iceCanvas.getContext('2d');
+            const ctx = canvas.getContext('2d');
+            if (!backdropCtx || !bgCtx || !iceCtx || !ctx) {
+                console.error('Failed to get context for one or more canvases');
+                throw new Error('Canvas context initialization failed');
+            }
+            let gridSize = 200;
+            const camera = { x: 0, y: 0 };
+            const player = {
+                radius: 15,
+                color: 'rgba(255, 255, 255, 0)',
+                borderColor: 'white',
+                speed: 0.4,
+                maxSpeed: 5,
+                baseSpeed: 0.4,
+                baseMaxSpeed: 5,
+                velocityX: 0,
+                velocityY: 0,
+                friction: 0.90,
+                pulsing: false,
+                pulseTimer: 0,
+                pelletCount: 0,
+                powerState: 'Neutral',
+                pelletType: null
+            };
+            const frost = {
+                active: false,
+                x: 0,
+                y: 0,
+                maxRadius: player.radius * 2.5 * 5,
+                currentRadius: 0,
+                alpha: 1.0,
+                phase: 'inactive',
+                growTime: 30,
+                fullTime: 120,
+                fadeTime: 60,
+                timer: 0
+            };
+            const fireCone = {
+                active: false,
+                angle: 0,
+                duration: 30,
+                timer: 0,
+                length: player.radius * 8,
+                width: Math.PI / 10
+            };
+            const pellets = [];
+            const pelletRadius = player.radius / 3;
+            const pelletColors = ['red', 'green', 'blue'];
+            const pelletMass = (Math.PI * pelletRadius ** 2) * 1.1;
+            const pelletFriction = 0.90;
+            const pelletMaxSpeed = player.maxSpeed / 2;
+            generatePellets();
+            const keys = {
+                ArrowUp: false, ArrowDown: false,
+                ArrowLeft: false, ArrowRight: false,
+                w: false, a: false, s: false, d: false
+            };
+            window.addEventListener('keydown', (e) => {
+                if (e.key in keys) keys[e.key] = true;
+                if (e.key === ' ' && !frost.active && !fireCone.active) {
+                    if (player.powerState === 'Neutral' || player.powerState === 'AbsorbingFrost' || player.powerState === 'AbsorbingFire') {
+                        player.pulsing = true;
+                        player.pulseTimer = 10;
+                    } else if (player.powerState === 'Frosted') {
+                        frost.active = true;
+                        frost.x = camera.x;
+                        frost.y = camera.y;
+                        frost.currentRadius = player.radius;
+                        frost.alpha = 1.0;
+                        frost.phase = 'growing';
+                        frost.timer = frost.growTime;
+                        player.pelletCount--;
+                        if (player.pelletCount === 0) {
+                            player.powerState = 'Neutral';
+                            player.pelletType = null;
+                            player.pulsing = false;
+                        }
+                        updatePlayerColorAndSpeed();
+                    } else if (player.powerState === 'Toasty') {
+                        fireCone.active = true;
+                        fireCone.angle = Math.atan2(player.velocityY, player.velocityX);
+                        if (player.velocityX === 0 && player.velocityY === 0) fireCone.angle = 0;
+                        fireCone.timer = fireCone.duration;
+                        player.pelletCount--;
+                        if (player.pelletCount === 0) {
+                            player.powerState = 'Neutral';
+                            player.pelletType = null;
+                            player.pulsing = false;
+                        }
+                        updatePlayerColorAndSpeed();
+                    }
+                }
+            });
+            window.addEventListener('keyup', (e) => {
+                if (e.key in keys) keys[e.key] = false;
+            });
+            function updatePlayerColorAndSpeed() {
+                try {
+                    const progress = Math.min(player.pelletCount / 5, 1);
+                    let red = 255, blue = 255, alpha = progress;
+                    if (player.pelletType === 'blue') {
+                        blue = Math.round(255 * (1 - progress));
+                        red = blue;
+                        player.speed = player.baseSpeed * (1 - 0.5 * progress);
+                        player.maxSpeed = player.baseMaxSpeed * (1 - 0.5 * progress);
+                    } else if (player.pelletType === 'red') {
+                        red = 255;
+                        blue = Math.round(255 * (1 - progress));
+                        player.speed = player.baseSpeed * (1 + 0.5 * progress);
+                        player.maxSpeed = player.baseMaxSpeed * (1 + 0.5 * progress);
+                    } else {
+                        player.speed = player.baseSpeed;
+                        player.maxSpeed = player.baseMaxSpeed;
+                    }
+                    player.color = `rgba(${red}, ${blue}, ${blue}, ${alpha})`;
+                } catch (error) {
+                    console.error('Error updating player color and speed:', error);
+                }
+            }
+            function drawGrid() {
+                bgCtx.clearRect(0, 0, bgGridCanvas.width, bgGridCanvas.height);
+                bgCtx.strokeStyle = 'rgba(200, 200, 200, 1)';
+                bgCtx.lineWidth = 1;
+                const offsetX = -camera.x % gridSize;
+                const offsetY = -camera.y % gridSize;
+                for (let x = offsetX; x < bgGridCanvas.width; x += gridSize) {
+                    bgCtx.beginPath();
+                    bgCtx.moveTo(x, 0);
+                    bgCtx.lineTo(x, bgGridCanvas.height);
+                    bgCtx.stroke();
+                }
+                for (let y = offsetY; y < bgGridCanvas.height; y += gridSize) {
+                    bgCtx.beginPath();
+                    bgCtx.moveTo(0, y);
+                    bgCtx.lineTo(bgGridCanvas.width, y);
+                    bgCtx.stroke();
+                }
+            }
+            function drawBackdrop() {
+                backdropCtx.fillStyle = 'black';
+                backdropCtx.fillRect(0, 0, backdropCanvas.width, backdropCanvas.height);
+            }
+            const iceTextureCanvas = document.createElement('canvas');
+            iceTextureCanvas.width = 256;
+            iceTextureCanvas.height = 256;
+            const textureCtx = iceTextureCanvas.getContext('2d');
+            function generateIceTexture() {
+                const imageData = textureCtx.createImageData(256, 256);
+                const data = imageData.data;
+                for (let i = 0; i < data.length; i += 4) {
+                    const x = (i / 4) % 256;
+                    const y = Math.floor((i / 4) / 256);
+                    const noise = 0.5 + 0.5 * Math.sin(x * 0.05 + y * 0.05) * Math.cos(y * 0.05 + x * 0.05);
+                    const value = Math.floor(180 + noise * 75);
+                    data[i] = value;
+                    data[i + 1] = value + 20;
+                    data[i + 2] = 255;
+                    data[i + 3] = Math.floor(255 * (0.3 + noise * 0.5));
+                }
+                textureCtx.putImageData(imageData, 0, 0);
+                textureCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                textureCtx.lineWidth = 0.5;
+                function drawCrack(x, y, angle, length, depth) {
+                    if (depth <= 0 || length < 5) return;
+                    const endX = x + Math.cos(angle) * length;
+                    const endY = y + Math.sin(angle) * length;
+                    textureCtx.beginPath();
+                    textureCtx.moveTo(x, y);
+                    textureCtx.lineTo(endX, endY);
+                    textureCtx.stroke();
+                    if (Math.random() < 0.7) {
+                        drawCrack(endX, endY, angle + Math.random() * 0.5 - 0.25, length * 0.8, depth - 1);
+                        drawCrack(endX, endY, angle + Math.random() * 0.5 - 0.25, length * 0.8, depth - 1);
+                    }
+                }
+                for (let i = 0; i < 5; i++) {
+                    drawCrack(Math.random() * 256, Math.random() * 256, Math.random() * Math.PI * 2, 50, 3);
+                }
+                textureCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                for (let i = 0; i < 100; i++) {
+                    const x = Math.random() * 256;
+                    const y = Math.random() * 256;
+                    const r = 1 + Math.random() * 2;
+                    textureCtx.beginPath();
+                    textureCtx.arc(x, y, r, 0, Math.PI * 2);
+                    textureCtx.fill();
+                }
+                textureCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                for (let i = 0; i < 20; i++) {
+                    const x = Math.random() * 256;
+                    const y = Math.random() * 256;
+                    textureCtx.beginPath();
+                    textureCtx.arc(x, y, 1, 0, Math.PI * 2);
+                    textureCtx.fill();
+                }
+            }
+            generateIceTexture();
+            function drawIce() {
+                iceCtx.clearRect(0, 0, iceCanvas.width, iceCanvas.height);
+                if (frost.active) {
+                    const iceX = iceCanvas.width / 2 + frost.x - camera.x;
+                    const iceY = iceCanvas.height / 2 + frost.y - camera.y;
+                    iceCtx.fillStyle = iceCtx.createPattern(iceTextureCanvas, 'repeat');
+                    iceCtx.beginPath();
+                    iceCtx.arc(iceX, iceY, frost.currentRadius, 0, Math.PI * 2);
+                    iceCtx.fill();
+                    const iceGradient = iceCtx.createRadialGradient(
+                        iceX, iceY, frost.currentRadius * 0.5,
+                        iceX, iceY, frost.currentRadius
+                    );
+                    iceGradient.addColorStop(0, `rgba(200, 220, 255, ${0.3 * frost.alpha})`);
+                    iceGradient.addColorStop(1, `rgba(255, 255, 255, ${0.8 * frost.alpha})`);
+                    iceCtx.globalCompositeOperation = 'source-atop';
+                    iceCtx.fillStyle = iceGradient;
+                    iceCtx.fill();
+                    const iceGlossGradient = iceCtx.createRadialGradient(
+                        iceX - frost.currentRadius * 0.3, iceY - frost.currentRadius * 0.3, 0,
+                        iceX, iceY, frost.currentRadius * 0.7
+                    );
+                    iceGlossGradient.addColorStop(0, `rgba(255, 255, 255, ${0.4 * frost.alpha})`);
+                    iceGlossGradient.addColorStop(1, `rgba(255, 255, 255, ${0.1 * frost.alpha})`);
+                    iceCtx.fillStyle = iceGlossGradient;
+                    iceCtx.fill();
+                    iceCtx.globalCompositeOperation = 'source-over';
+                }
+            }
+            function drawFireCone() {
+                if (fireCone.active) {
+                    const iceX = iceCanvas.width / 2;
+                    const iceY = iceCanvas.height / 2;
+                    iceCtx.globalCompositeOperation = 'source-over';
+                    const flicker = 1 + Math.random() * 0.3;
+                    const gradient = iceCtx.createRadialGradient(
+                        iceX, iceY, 0,
+                        iceX, iceY, fireCone.length * flicker
+                    );
+                    gradient.addColorStop(0, 'rgba(255, 180, 0, 0.9)');
+                    gradient.addColorStop(0.5, 'rgba(255, 80, 0, 0.5)');
+                    gradient.addColorStop(1, 'rgba(200, 0, 0, 0.0)');
+                    iceCtx.fillStyle = gradient;
+                    iceCtx.beginPath();
+                    iceCtx.moveTo(iceX, iceY);
+                    iceCtx.arc(iceX, iceY, fireCone.length * flicker, fireCone.angle - fireCone.width / 2, fireCone.angle + fireCone.width / 2);
+                    iceCtx.closePath();
+                    iceCtx.fill();
+                }
+            }
+            function drawPlayerGlow(centerX, centerY) {
+                const glowRadius = player.radius * 3.2;
+                const glowGradient = ctx.createRadialGradient(
+                    centerX, centerY, glowRadius * 0.7,
+                    centerX, centerY, glowRadius
+                );
+                glowGradient.addColorStop(0, 'rgba(100, 100, 100, 0.01)');
+                glowGradient.addColorStop(1, 'rgba(0, 0, 0, 0.0)');
+                ctx.fillStyle = glowGradient;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            function generatePellets() {
+                for (let i = 0; i < 30; i++) {
+                    let placed = false;
+                    while (!placed) {
+                        const angle = Math.random() * 2 * Math.PI;
+                        const distance = player.radius * (5 + Math.random() * 15);
+                        const x = Math.cos(angle) * distance;
+                        const y = Math.sin(angle) * distance;
+                        let overlapping = pellets.some(pellet => {
+                            const dx = pellet.x - x;
+                            const dy = pellet.y - y;
+                            return Math.hypot(dx, dy) < pelletRadius * 2;
+                        });
+                        if (!overlapping) {
+                            pellets.push({ 
+                                x, y, 
+                                color: pelletColors[i % pelletColors.length], 
+                                mass: pelletMass,
+                                velocityX: 0,
+                                velocityY: 0 
+                            });
+                            placed = true;
+                        }
+                    }
+                }
+            }
+            function getConnectedPelletGroup(startPellet) {
+                const visited = new Set();
+                const group = [];
+                const stack = [startPellet];
+                while (stack.length > 0) {
+                    const current = stack.pop();
+                    if (visited.has(current)) continue;
+                    visited.add(current);
+                    group.push(current);
+                    for (let pellet of pellets) {
+                        if (pellet === current || visited.has(pellet)) continue;
+                        const dx = pellet.x - current.x;
+                        const dy = pellet.y - current.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist <= pelletRadius * 2) {
+                            stack.push(pellet);
+                        }
+                    }
+                }
+                return group;
+            }
+            function getPlayerCurrentRadius() {
+                let radius = player.radius;
+                if (player.pulsing && player.pulseTimer > 0 && (player.powerState === 'Neutral' || player.powerState === 'AbsorbingFrost' || player.powerState === 'AbsorbingFire')) {
+                    radius += 5 * Math.sin((10 - player.pulseTimer) * Math.PI / 10);
+                    player.pulseTimer--;
+                    if (player.pulseTimer <= 0) player.pulsing = false;
+                }
+                return radius;
+            }
+            function handlePelletToPelletCollisions() {
+                for (let i = 0; i < pellets.length; i++) {
+                    for (let j = i + 1; j < pellets.length; j++) {
+                        const a = pellets[i];
+                        const b = pellets[j];
+                        const dx = b.x - a.x;
+                        const dy = b.y - a.y;
+                        const dist = Math.hypot(dx, dy);
+                        const minDist = pelletRadius * 2;
+                        if (dist < minDist && dist > 0) {
+                            const nx = dx / dist;
+                            const ny = dy / dist;
+                            const overlap = minDist - dist;
+                            const totalMass = a.mass + b.mass;
+                            const aMomentumX = a.velocityX * a.mass;
+                            const aMomentumY = a.velocityY * a.mass;
+                            const bMomentumX = b.velocityX * b.mass;
+                            const bMomentumY = b.velocityY * b.mass;
+                            a.x -= nx * (overlap / 2);
+                            a.y -= ny * (overlap / 2);
+                            b.x += nx * (overlap / 2);
+                            b.y += ny * (overlap / 2);
+                            a.velocityX = (aMomentumX + bMomentumX) / totalMass;
+                            a.velocityY = (aMomentumY + bMomentumY) / totalMass;
+                            b.velocityX = a.velocityX;
+                            b.velocityY = a.velocityY;
+                            for (let pellet of [a, b]) {
+                                const velocityMagnitude = Math.sqrt(pellet.velocityX ** 2 + pellet.velocityY ** 2);
+                                if (velocityMagnitude > pelletMaxSpeed) {
+                                    const scale = pelletMaxSpeed / velocityMagnitude;
+                                    pellet.velocityX *= scale;
+                                    pellet.velocityY *= scale;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            function updatePelletMovement() {
+                for (let pellet of pellets) {
+                    pellet.x += pellet.velocityX;
+                    pellet.y += pellet.velocityY;
+                    const dx = pellet.x - frost.x;
+                    const dy = pellet.y - frost.y;
+                    const dist = Math.hypot(dx, dy);
+                    const friction = frost.active && dist <= frost.currentRadius ? 1.0 : pelletFriction;
+                    pellet.velocityX *= friction;
+                    pellet.velocityY *= friction;
+                    if (Math.abs(pellet.velocityX) < 0.01) pellet.velocityX = 0;
+                    if (Math.abs(pellet.velocityY) < 0.01) pellet.velocityY = 0;
+                }
+            }
+            function handlePlayerMovement() {
+                if (keys.ArrowUp || keys.w) player.velocityY -= player.speed;
+                if (keys.ArrowDown || keys.s) player.velocityY += player.speed;
+                if (keys.ArrowLeft || keys.a) player.velocityX -= player.speed;
+                if (keys.ArrowRight || keys.d) player.velocityX += player.speed;
+                const velocityMagnitude = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
+                if (velocityMagnitude > player.maxSpeed) {
+                    const scale = player.maxSpeed / velocityMagnitude;
+                    player.velocityX *= scale;
+                    player.velocityY *= scale;
+                }
+                camera.x += player.velocityX;
+                camera.y += player.velocityY;
+                const dx = camera.x - frost.x;
+                const dy = camera.y - frost.y;
+                const dist = Math.hypot(dx, dy);
+                const friction = frost.active && dist <= frost.currentRadius ? 1.0 : player.friction;
+                player.velocityX *= friction;
+                player.velocityY *= friction;
+            }
+            function handlePlayerPelletCollisions() {
+                let totalPelletMass = 0;
+                let fireConePelletMass = 0;
+                let collidingPelletGroups = [];
+                let fireConePelletGroups = [];
+                const playerCurrentRadius = getPlayerCurrentRadius();
+                const pelletsToRemove = [];
+                let adjacentBlues = 0, adjacentReds = 0;
+                const fireConePushMaxSpeed = 3;
+                for (let pellet of pellets) {
+                    const dx = pellet.x - camera.x;
+                    const dy = pellet.y - camera.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = playerCurrentRadius + pelletRadius;
+                    if (dist < minDist && dist > 0) {
+                        if (player.pulsing && player.powerState === 'Neutral') {
+                            if (pellet.color === 'blue') adjacentBlues++;
+                            else if (pellet.color === 'red') adjacentReds++;
+                        } else if (player.pulsing && player.powerState === 'AbsorbingFrost' && player.pelletType === 'blue' && pellet.color === 'blue') {
+                            pelletsToRemove.push(pellet);
+                            player.pelletCount = Math.min(player.pelletCount + 1, 5);
+                            if (player.pelletCount === 5) {
+                                player.powerState = 'Frosted';
+                            }
+                            updatePlayerColorAndSpeed();
+                        } else if (player.pulsing && player.powerState === 'AbsorbingFire' && player.pelletType === 'red' && pellet.color === 'red') {
+                            pelletsToRemove.push(pellet);
+                            player.pelletCount = Math.min(player.pelletCount + 1, 5);
+                            if (player.pelletCount === 5) {
+                                player.powerState = 'Toasty';
+                            }
+                            updatePlayerColorAndSpeed();
+                        } else {
+                            const group = getConnectedPelletGroup(pellet);
+                            if (!collidingPelletGroups.some(g => g.includes(pellet))) {
+                                collidingPelletGroups.push(group);
+                                totalPelletMass += group.reduce((sum, p) => sum + p.mass, 0);
+                            }
+                        }
+                    }
+                    if (fireCone.active && player.powerState === 'Toasty' && dist <= fireCone.length && dist > 0) {
+                        const angleToPellet = Math.atan2(dy, dx);
+                        const angleDiff = Math.abs(((angleToPellet - fireCone.angle + Math.PI) % (2 * Math.PI)) - Math.PI);
+                        if (angleDiff <= fireCone.width / 2) {
+                            if (pellet.color !== 'red') {
+                                pelletsToRemove.push(pellet);
+                            } else {
+                                const group = getConnectedPelletGroup(pellet);
+                                if (!fireConePelletGroups.some(g => g.includes(pellet))) {
+                                    fireConePelletGroups.push(group);
+                                    fireConePelletMass += group.reduce((sum, p) => sum + p.mass, 0);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (player.pulsing && player.powerState === 'Neutral') {
+                    if (adjacentBlues > 0 && adjacentReds === 0) {
+                        player.powerState = 'AbsorbingFrost';
+                        player.pelletType = 'blue';
+                        player.pelletCount = 0;
+                        updatePlayerColorAndSpeed();
+                    } else if (adjacentReds > 0 && adjacentBlues === 0) {
+                        player.powerState = 'AbsorbingFire';
+                        player.pelletType = 'red';
+                        player.pelletCount = 0;
+                        updatePlayerColorAndSpeed();
+                    }
+                }
+                pelletsToRemove.forEach(pellet => {
+                    const index = pellets.indexOf(pellet);
+                    if (index !== -1) pellets.splice(index, 1);
+                });
+                if (collidingPelletGroups.length > 0) {
+                    const playerMass = Math.PI * player.radius ** 2;
+                    const totalMass = playerMass + totalPelletMass;
+                    const pulseForceMultiplier = player.pulsing ? 3 : 1;
+                    for (let group of collidingPelletGroups) {
+                        let closestPellet = group[0];
+                        let minDist = Infinity;
+                        for (let pellet of group) {
+                            const dx = pellet.x - camera.x;
+                            const dy = pellet.y - camera.y;
+                            const dist = Math.hypot(dx, dy);
+                            if (dist < minDist) {
+                                minDist = dist;
+                                closestPellet = pellet;
+                            }
+                        }
+                        const dx = closestPellet.x - camera.x;
+                        const dy = closestPellet.y - camera.y;
+                        const dist = Math.hypot(dx, dy);
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        const overlap = (playerCurrentRadius + pelletRadius) - dist;
+                        const displacement = overlap * playerMass / totalMass * pulseForceMultiplier;
+                        const groupMass = group.reduce((sum, p) => sum + p.mass, 0);
+                        const impulse = displacement * groupMass;
+                        for (let pellet of group) {
+                            pellet.x += nx * displacement;
+                            pellet.y += ny * displacement;
+                            pellet.velocityX += (nx * impulse) / pellet.mass;
+                            pellet.velocityY += (ny * impulse) / pellet.mass;
+                            const velocityMagnitude = Math.sqrt(pellet.velocityX ** 2 + pellet.velocityY ** 2);
+                            if (velocityMagnitude > pelletMaxSpeed) {
+                                const scale = pelletMaxSpeed / velocityMagnitude;
+                                pellet.velocityX *= scale;
+                                pellet.velocityY *= scale;
+                            }
+                        }
+                    }
+                    player.velocityX *= 1 - (totalPelletMass / totalMass);
+                    player.velocityY *= 1 - (totalPelletMass / totalMass);
+                }
+                if (fireConePelletGroups.length > 0 && fireCone.active) {
+                    const playerMass = Math.PI * player.radius ** 2;
+                    const totalMass = playerMass + fireConePelletMass;
+                    const pulseForceMultiplier = 3;
+                    const nx = Math.cos(fireCone.angle);
+                    const ny = Math.sin(fireCone.angle);
+                    for (let group of fireConePelletGroups) {
+                        const groupMass = group.reduce((sum, p) => sum + p.mass, 0);
+                        const displacement = (player.radius / 2) * playerMass / totalMass * pulseForceMultiplier;
+                        const impulse = displacement * groupMass;
+                        for (let pellet of group) {
+                            pellet.x += nx * displacement;
+                            pellet.y += ny * displacement;
+                            const accelerationX = (nx * impulse) / pellet.mass;
+                            const accelerationY = (ny * impulse) / pellet.mass;
+                            pellet.velocityX += accelerationX;
+                            pellet.velocityY += accelerationY;
+                            const velocityMagnitude = Math.sqrt(pellet.velocityX ** 2 + pellet.velocityY ** 2);
+                            if (velocityMagnitude > fireConePushMaxSpeed) {
+                                const scale = fireConePushMaxSpeed / velocityMagnitude;
+                                pellet.velocityX *= scale;
+                                pellet.velocityY *= scale;
+                            }
+                        }
+                    }
+                    player.velocityX *= 1 - (fireConePelletMass / totalMass);
+                    player.velocityY *= 1 - (fireConePelletMass / totalMass);
+                }
+            }
+            function renderFog(centerX, centerY, visibleRadius) {
+                const fogCanvas = document.createElement('canvas');
+                fogCanvas.width = canvas.width;
+                fogCanvas.height = canvas.height;
+                const fogCtx = fogCanvas.getContext('2d');
+                fogCtx.fillStyle = 'rgba(30, 30, 30, 1.0)';
+                fogCtx.fillRect(0, 0, canvas.width, canvas.height);
+                const fogGradient = fogCtx.createRadialGradient(
+                    centerX, centerY, 0,
+                    centerX, centerY, visibleRadius
+                );
+                fogGradient.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+                fogGradient.addColorStop(0.6, 'rgba(255, 255, 255, 0.6)');
+                fogGradient.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
+                fogCtx.globalCompositeOperation = 'destination-out';
+                fogCtx.fillStyle = fogGradient;
+                fogCtx.beginPath();
+                fogCtx.arc(centerX, centerY, visibleRadius, 0, Math.PI * 2);
+                fogCtx.fill();
+                ctx.drawImage(fogCanvas, 0, 0);
+            }
+            function updateFrost() {
+                if (!frost.active) return;
+                if (frost.phase === 'growing') {
+                    frost.timer--;
+                    frost.currentRadius = frost.maxRadius * (1 - frost.timer / frost.growTime);
+                    frost.alpha = 1.0;
+                    if (frost.timer <= 0) {
+                        frost.phase = 'full';
+                        frost.timer = frost.fullTime;
+                    }
+                } else if (frost.phase === 'full') {
+                    frost.timer--;
+                    frost.currentRadius = frost.maxRadius;
+                    frost.alpha = 1.0;
+                    if (frost.timer <= 0) {
+                        frost.phase = 'fading';
+                        frost.timer = frost.fadeTime;
+                    }
+                } else if (frost.phase === 'fading') {
+                    frost.timer--;
+                    frost.currentRadius = frost.maxRadius;
+                    frost.alpha = frost.timer / frost.fadeTime;
+                    if (frost.timer <= 0) {
+                        frost.active = false;
+                        frost.phase = 'inactive';
+                        frost.alpha = 0;
+                    }
+                }
+            }
+            function updateFireCone() {
+                if (!fireCone.active) return;
+                fireCone.timer--;
+                if (fireCone.timer <= 0) {
+                    fireCone.active = false;
+                    fireCone.timer = 0;
+                }
+            }
+            function resizeCanvas() {
+                [backdropCanvas, bgGridCanvas, iceCanvas, canvas].forEach(c => {
+                    c.width = window.innerWidth;
+                    c.height = window.innerHeight;
+                });
+                drawBackdrop();
+            }
+            function gameLoop() {
+                try {
+                    handlePlayerMovement();
+                    updatePelletMovement();
+                    updateFrost();
+                    updateFireCone();
+                    drawGrid();
+                    drawIce();
+                    drawFireCone();
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    let currentRadius = getPlayerCurrentRadius();
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+                    pellets.forEach(pellet => {
+                        const screenX = centerX + pellet.x - camera.x;
+                        const screenY = centerY + pellet.y - camera.y;
+                        ctx.beginPath();
+                        ctx.arc(screenX, screenY, pelletRadius, 0, Math.PI * 2);
+                        ctx.fillStyle = pellet.color;
+                        ctx.fill();
+                    });
+                    drawPlayerGlow(centerX, centerY);
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, currentRadius, 0, Math.PI * 2);
+                    ctx.fillStyle = player.color;
+                    ctx.fill();
+                    ctx.strokeStyle = player.borderColor;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    renderFog(centerX, centerY, player.radius * 8);
+                    handlePlayerPelletCollisions();
+                    handlePelletToPelletCollisions();
+                    coordDisplay.textContent = `${Math.round(camera.x)}, ${Math.round(-camera.y)}`;
+                    requestAnimationFrame(gameLoop);
+                } catch (error) {
+                    console.error('Game loop error:', error);
+                }
+            }
+            window.addEventListener('resize', resizeCanvas);
+            try {
+                resizeCanvas();
+                gameLoop();
+            } catch (error) {
+                console.error('Initialization error:', error);
+            }
+        </script>
+    </body>
+</html>

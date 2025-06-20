@@ -34,15 +34,18 @@
         <canvas id="iceCanvas"></canvas>
         <canvas id="gameCanvas"></canvas>
         <script>
+            // Get DOM elements
             const coordDisplay = document.getElementById('coordinates');
             const backdropCanvas = document.getElementById('backdropCanvas');
             const bgGridCanvas = document.getElementById('bgGridCanvas');
             const iceCanvas = document.getElementById('iceCanvas');
             const canvas = document.getElementById('gameCanvas');
+            // Ensure all elements exist
             if (!backdropCanvas || !bgGridCanvas || !iceCanvas || !canvas || !coordDisplay) {
                 console.error('Canvas or coordinate display element not found');
                 throw new Error('Canvas initialization failed');
             }
+            // Get 2D contexts for each canvas
             const backdropCtx = backdropCanvas.getContext('2d');
             const bgCtx = bgGridCanvas.getContext('2d');
             const iceCtx = iceCanvas.getContext('2d');
@@ -51,6 +54,8 @@
                 console.error('Failed to get context for one or more canvases');
                 throw new Error('Canvas context initialization failed');
             }
+
+            // Game state variables
             let gridSize = 200;
             const camera = { x: 0, y: 0 };
             const player = {
@@ -97,14 +102,21 @@
             const pelletMass = (Math.PI * pelletRadius ** 2) * 1.1;
             const pelletFriction = 0.90;
             const pelletMaxSpeed = player.maxSpeed / 2;
+
+            // Generates all pellets for the game at startup
             generatePellets();
+
+            // Keyboard state
             const keys = {
                 ArrowUp: false, ArrowDown: false,
                 ArrowLeft: false, ArrowRight: false,
                 w: false, a: false, s: false, d: false
             };
+
+            // Setup input event listeners
             window.addEventListener('keydown', (e) => {
                 if (e.key in keys) keys[e.key] = true;
+                // SPACE = activate power or pulse
                 if (e.key === ' ' && !frost.active && !fireCone.active) {
                     if (player.powerState === 'Neutral' || player.powerState === 'AbsorbingFrost' || player.powerState === 'AbsorbingFire') {
                         player.pulsing = true;
@@ -142,41 +154,61 @@
             window.addEventListener('keyup', (e) => {
                 if (e.key in keys) keys[e.key] = false;
             });
+
+            /**
+             * Updates the player's color and speed based on pellet type and count.
+             * Adjusts appearance and movement to reflect current power state.
+             * No parameters. No return value.
+             */
             function updatePlayerColorAndSpeed() {
                 try {
+                    // Progress for color/alpha calculations (max 5 pellets)
                     const progress = Math.min(player.pelletCount / 5, 1);
                     let red = 255, blue = 255, alpha = progress;
                     if (player.pelletType === 'blue') {
+                        // Frost: more blue, slower as progress increases
                         blue = Math.round(255 * (1 - progress));
                         red = blue;
                         player.speed = player.baseSpeed * (1 - 0.5 * progress);
                         player.maxSpeed = player.baseMaxSpeed * (1 - 0.5 * progress);
                     } else if (player.pelletType === 'red') {
+                        // Fire: more red, faster as progress increases
                         red = 255;
                         blue = Math.round(255 * (1 - progress));
                         player.speed = player.baseSpeed * (1 + 0.5 * progress);
                         player.maxSpeed = player.baseMaxSpeed * (1 + 0.5 * progress);
                     } else {
+                        // Neutral: default speed and color
                         player.speed = player.baseSpeed;
                         player.maxSpeed = player.baseMaxSpeed;
                     }
+                    // Set RGBA color string
                     player.color = `rgba(${red}, ${blue}, ${blue}, ${alpha})`;
                 } catch (error) {
                     console.error('Error updating player color and speed:', error);
                 }
             }
+
+            /**
+             * Draws the grid on the background grid canvas.
+             * The grid helps with spatial orientation.
+             * No parameters. No return value.
+             */
             function drawGrid() {
                 bgCtx.clearRect(0, 0, bgGridCanvas.width, bgGridCanvas.height);
                 bgCtx.strokeStyle = 'rgba(200, 200, 200, 1)';
                 bgCtx.lineWidth = 1;
+                // Offset so grid scrolls with camera
                 const offsetX = -camera.x % gridSize;
                 const offsetY = -camera.y % gridSize;
+                // Draw vertical lines
                 for (let x = offsetX; x < bgGridCanvas.width; x += gridSize) {
                     bgCtx.beginPath();
                     bgCtx.moveTo(x, 0);
                     bgCtx.lineTo(x, bgGridCanvas.height);
                     bgCtx.stroke();
                 }
+                // Draw horizontal lines
                 for (let y = offsetY; y < bgGridCanvas.height; y += gridSize) {
                     bgCtx.beginPath();
                     bgCtx.moveTo(0, y);
@@ -184,20 +216,35 @@
                     bgCtx.stroke();
                 }
             }
+
+            /**
+             * Fills the backdrop canvas with black, representing the background.
+             * No parameters. No return value.
+             */
             function drawBackdrop() {
                 backdropCtx.fillStyle = 'black';
                 backdropCtx.fillRect(0, 0, backdropCanvas.width, backdropCanvas.height);
             }
+
+            // --- Ice texture generation helper setup ---
             const iceTextureCanvas = document.createElement('canvas');
             iceTextureCanvas.width = 256;
             iceTextureCanvas.height = 256;
             const textureCtx = iceTextureCanvas.getContext('2d');
+
+            /**
+             * Generates a procedural ice texture for the frosted area.
+             * Draws cracks and snow speckles for realism.
+             * No parameters. No return value.
+             */
             function generateIceTexture() {
+                // Create blue/white base noise
                 const imageData = textureCtx.createImageData(256, 256);
                 const data = imageData.data;
                 for (let i = 0; i < data.length; i += 4) {
                     const x = (i / 4) % 256;
                     const y = Math.floor((i / 4) / 256);
+                    // Noise function for icy variation
                     const noise = 0.5 + 0.5 * Math.sin(x * 0.05 + y * 0.05) * Math.cos(y * 0.05 + x * 0.05);
                     const value = Math.floor(180 + noise * 75);
                     data[i] = value;
@@ -208,6 +255,15 @@
                 textureCtx.putImageData(imageData, 0, 0);
                 textureCtx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
                 textureCtx.lineWidth = 0.5;
+
+                /**
+                 * Recursively draws a crack for the ice effect.
+                 * @param {number} x - Start x coordinate
+                 * @param {number} y - Start y coordinate
+                 * @param {number} angle - Direction in radians
+                 * @param {number} length - Length of crack
+                 * @param {number} depth - Recursion depth
+                 */
                 function drawCrack(x, y, angle, length, depth) {
                     if (depth <= 0 || length < 5) return;
                     const endX = x + Math.cos(angle) * length;
@@ -216,14 +272,17 @@
                     textureCtx.moveTo(x, y);
                     textureCtx.lineTo(endX, endY);
                     textureCtx.stroke();
+                    // Branch recursively
                     if (Math.random() < 0.7) {
                         drawCrack(endX, endY, angle + Math.random() * 0.5 - 0.25, length * 0.8, depth - 1);
                         drawCrack(endX, endY, angle + Math.random() * 0.5 - 0.25, length * 0.8, depth - 1);
                     }
                 }
+                // Draw a few cracks
                 for (let i = 0; i < 5; i++) {
                     drawCrack(Math.random() * 256, Math.random() * 256, Math.random() * Math.PI * 2, 50, 3);
                 }
+                // Snow speckles
                 textureCtx.fillStyle = 'rgba(255, 255, 255, 0.3)';
                 for (let i = 0; i < 100; i++) {
                     const x = Math.random() * 256;
@@ -233,6 +292,7 @@
                     textureCtx.arc(x, y, r, 0, Math.PI * 2);
                     textureCtx.fill();
                 }
+                // Brighter ice specks
                 textureCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
                 for (let i = 0; i < 20; i++) {
                     const x = Math.random() * 256;
@@ -243,15 +303,24 @@
                 }
             }
             generateIceTexture();
+
+            /**
+             * Draws the frosted area on the ice canvas if frost is active.
+             * Uses the procedural ice texture and gradients for visual effect.
+             * No parameters. No return value.
+             */
             function drawIce() {
                 iceCtx.clearRect(0, 0, iceCanvas.width, iceCanvas.height);
                 if (frost.active) {
+                    // Map world coords to center of ice canvas
                     const iceX = iceCanvas.width / 2 + frost.x - camera.x;
                     const iceY = iceCanvas.height / 2 + frost.y - camera.y;
+                    // Fill circular area with ice texture
                     iceCtx.fillStyle = iceCtx.createPattern(iceTextureCanvas, 'repeat');
                     iceCtx.beginPath();
                     iceCtx.arc(iceX, iceY, frost.currentRadius, 0, Math.PI * 2);
                     iceCtx.fill();
+                    // Glow/frost effect: blue/white radial
                     const iceGradient = iceCtx.createRadialGradient(
                         iceX, iceY, frost.currentRadius * 0.5,
                         iceX, iceY, frost.currentRadius
@@ -261,6 +330,7 @@
                     iceCtx.globalCompositeOperation = 'source-atop';
                     iceCtx.fillStyle = iceGradient;
                     iceCtx.fill();
+                    // Add gloss with a second radial gradient
                     const iceGlossGradient = iceCtx.createRadialGradient(
                         iceX - frost.currentRadius * 0.3, iceY - frost.currentRadius * 0.3, 0,
                         iceX, iceY, frost.currentRadius * 0.7
@@ -272,12 +342,20 @@
                     iceCtx.globalCompositeOperation = 'source-over';
                 }
             }
+
+            /**
+             * Draws the fire cone effect on the ice canvas if fire power is active.
+             * No parameters. No return value.
+             */
             function drawFireCone() {
                 if (fireCone.active) {
+                    // Center of canvas (player's position)
                     const iceX = iceCanvas.width / 2;
                     const iceY = iceCanvas.height / 2;
                     iceCtx.globalCompositeOperation = 'source-over';
+                    // Flicker for fire animation
                     const flicker = 1 + Math.random() * 0.3;
+                    // Gradient for fire cone
                     const gradient = iceCtx.createRadialGradient(
                         iceX, iceY, 0,
                         iceX, iceY, fireCone.length * flicker
@@ -288,13 +366,21 @@
                     iceCtx.fillStyle = gradient;
                     iceCtx.beginPath();
                     iceCtx.moveTo(iceX, iceY);
+                    // Draw circular arc segment for the cone
                     iceCtx.arc(iceX, iceY, fireCone.length * flicker, fireCone.angle - fireCone.width / 2, fireCone.angle + fireCone.width / 2);
                     iceCtx.closePath();
                     iceCtx.fill();
                 }
             }
+
+            /**
+             * Draws a soft glow around the player for visual feedback.
+             * @param {number} centerX - X coordinate (canvas)
+             * @param {number} centerY - Y coordinate (canvas)
+             */
             function drawPlayerGlow(centerX, centerY) {
                 const glowRadius = player.radius * 3.2;
+                // Radial gradient for glow
                 const glowGradient = ctx.createRadialGradient(
                     centerX, centerY, glowRadius * 0.7,
                     centerX, centerY, glowRadius
@@ -306,20 +392,29 @@
                 ctx.arc(centerX, centerY, glowRadius, 0, Math.PI * 2);
                 ctx.fill();
             }
+
+            /**
+             * Populates the pellets array with random positions and colors,
+             * ensuring no overlap at spawn.
+             * No parameters. No return value.
+             */
             function generatePellets() {
                 for (let i = 0; i < 30; i++) {
                     let placed = false;
                     while (!placed) {
+                        // Random radial placement
                         const angle = Math.random() * 2 * Math.PI;
                         const distance = player.radius * (5 + Math.random() * 15);
                         const x = Math.cos(angle) * distance;
                         const y = Math.sin(angle) * distance;
+                        // Check for overlap with other pellets
                         let overlapping = pellets.some(pellet => {
                             const dx = pellet.x - x;
                             const dy = pellet.y - y;
                             return Math.hypot(dx, dy) < pelletRadius * 2;
                         });
                         if (!overlapping) {
+                            // Add pellet if no overlap
                             pellets.push({ 
                                 x, y, 
                                 color: pelletColors[i % pelletColors.length], 
@@ -332,6 +427,13 @@
                     }
                 }
             }
+
+            /**
+             * Returns an array of all pellets connected to the startPellet (touching).
+             * Uses depth-first search to find adjacent pellets.
+             * @param {Object} startPellet - Starting pellet object
+             * @returns {Object[]} Array of connected pellets
+             */
             function getConnectedPelletGroup(startPellet) {
                 const visited = new Set();
                 const group = [];
@@ -341,6 +443,7 @@
                     if (visited.has(current)) continue;
                     visited.add(current);
                     group.push(current);
+                    // Find adjacent (touching) pellets
                     for (let pellet of pellets) {
                         if (pellet === current || visited.has(pellet)) continue;
                         const dx = pellet.x - current.x;
@@ -353,8 +456,14 @@
                 }
                 return group;
             }
+
+            /**
+             * Calculates the player's current radius, accounting for pulsing animation.
+             * @returns {number} The current player radius
+             */
             function getPlayerCurrentRadius() {
                 let radius = player.radius;
+                // Animate pulse if active
                 if (player.pulsing && player.pulseTimer > 0 && (player.powerState === 'Neutral' || player.powerState === 'AbsorbingFrost' || player.powerState === 'AbsorbingFire')) {
                     radius += 5 * Math.sin((10 - player.pulseTimer) * Math.PI / 10);
                     player.pulseTimer--;
@@ -362,6 +471,12 @@
                 }
                 return radius;
             }
+
+            /**
+             * Resolves collisions between all pellets, ensuring they don't overlap.
+             * Updates positions and velocities for a "bouncy" effect.
+             * No parameters. No return value.
+             */
             function handlePelletToPelletCollisions() {
                 for (let i = 0; i < pellets.length; i++) {
                     for (let j = i + 1; j < pellets.length; j++) {
@@ -372,22 +487,26 @@
                         const dist = Math.hypot(dx, dy);
                         const minDist = pelletRadius * 2;
                         if (dist < minDist && dist > 0) {
+                            // Calculate overlap normal and push apart
                             const nx = dx / dist;
                             const ny = dy / dist;
                             const overlap = minDist - dist;
+                            // Move both pellets
+                            a.x -= nx * (overlap / 2);
+                            a.y -= ny * (overlap / 2);
+                            b.x += nx * (overlap / 2);
+                            b.y += ny * (overlap / 2);
+                            // Compute elastic collision velocities
                             const totalMass = a.mass + b.mass;
                             const aMomentumX = a.velocityX * a.mass;
                             const aMomentumY = a.velocityY * a.mass;
                             const bMomentumX = b.velocityX * b.mass;
                             const bMomentumY = b.velocityY * b.mass;
-                            a.x -= nx * (overlap / 2);
-                            a.y -= ny * (overlap / 2);
-                            b.x += nx * (overlap / 2);
-                            b.y += ny * (overlap / 2);
                             a.velocityX = (aMomentumX + bMomentumX) / totalMass;
                             a.velocityY = (aMomentumY + bMomentumY) / totalMass;
                             b.velocityX = a.velocityX;
                             b.velocityY = a.velocityY;
+                            // Clamp to max speed
                             for (let pellet of [a, b]) {
                                 const velocityMagnitude = Math.sqrt(pellet.velocityX ** 2 + pellet.velocityY ** 2);
                                 if (velocityMagnitude > pelletMaxSpeed) {
@@ -400,33 +519,52 @@
                     }
                 }
             }
+
+            /**
+             * Updates each pellet's position based on its velocity and applies friction.
+             * Friction is disabled inside the frost area.
+             * No parameters. No return value.
+             */
             function updatePelletMovement() {
                 for (let pellet of pellets) {
+                    // Move pellet
                     pellet.x += pellet.velocityX;
                     pellet.y += pellet.velocityY;
+                    // Compute friction
                     const dx = pellet.x - frost.x;
                     const dy = pellet.y - frost.y;
                     const dist = Math.hypot(dx, dy);
                     const friction = frost.active && dist <= frost.currentRadius ? 1.0 : pelletFriction;
                     pellet.velocityX *= friction;
                     pellet.velocityY *= friction;
+                    // Clamp near-zero values to zero
                     if (Math.abs(pellet.velocityX) < 0.01) pellet.velocityX = 0;
                     if (Math.abs(pellet.velocityY) < 0.01) pellet.velocityY = 0;
                 }
             }
+
+            /**
+             * Handles keyboard movement input to update player velocity and camera position.
+             * Applies friction and clamps to maximum speed.
+             * No parameters. No return value.
+             */
             function handlePlayerMovement() {
+                // WASD/arrow keys update velocity
                 if (keys.ArrowUp || keys.w) player.velocityY -= player.speed;
                 if (keys.ArrowDown || keys.s) player.velocityY += player.speed;
                 if (keys.ArrowLeft || keys.a) player.velocityX -= player.speed;
                 if (keys.ArrowRight || keys.d) player.velocityX += player.speed;
+                // Clamp velocity to maxSpeed
                 const velocityMagnitude = Math.sqrt(player.velocityX ** 2 + player.velocityY ** 2);
                 if (velocityMagnitude > player.maxSpeed) {
                     const scale = player.maxSpeed / velocityMagnitude;
                     player.velocityX *= scale;
                     player.velocityY *= scale;
                 }
+                // Move camera (player always centered)
                 camera.x += player.velocityX;
                 camera.y += player.velocityY;
+                // If in frost, disable friction
                 const dx = camera.x - frost.x;
                 const dy = camera.y - frost.y;
                 const dist = Math.hypot(dx, dy);
@@ -434,6 +572,12 @@
                 player.velocityX *= friction;
                 player.velocityY *= friction;
             }
+
+            /**
+             * Handles all collisions and interactions between the player and pellets.
+             * Updates player state, triggers powers, and applies pulse/force effects.
+             * No parameters. No return value.
+             */
             function handlePlayerPelletCollisions() {
                 let totalPelletMass = 0;
                 let fireConePelletMass = 0;
@@ -449,6 +593,7 @@
                     const dist = Math.hypot(dx, dy);
                     const minDist = playerCurrentRadius + pelletRadius;
                     if (dist < minDist && dist > 0) {
+                        // Absorbing logic
                         if (player.pulsing && player.powerState === 'Neutral') {
                             if (pellet.color === 'blue') adjacentBlues++;
                             else if (pellet.color === 'red') adjacentReds++;
@@ -467,6 +612,7 @@
                             }
                             updatePlayerColorAndSpeed();
                         } else {
+                            // Normal collision: get group
                             const group = getConnectedPelletGroup(pellet);
                             if (!collidingPelletGroups.some(g => g.includes(pellet))) {
                                 collidingPelletGroups.push(group);
@@ -474,6 +620,7 @@
                             }
                         }
                     }
+                    // Fire cone: remove non-reds, collect reds for push
                     if (fireCone.active && player.powerState === 'Toasty' && dist <= fireCone.length && dist > 0) {
                         const angleToPellet = Math.atan2(dy, dx);
                         const angleDiff = Math.abs(((angleToPellet - fireCone.angle + Math.PI) % (2 * Math.PI)) - Math.PI);
@@ -490,6 +637,7 @@
                         }
                     }
                 }
+                // Start absorption state if pulsing and surrounded by only one pellet color
                 if (player.pulsing && player.powerState === 'Neutral') {
                     if (adjacentBlues > 0 && adjacentReds === 0) {
                         player.powerState = 'AbsorbingFrost';
@@ -503,10 +651,12 @@
                         updatePlayerColorAndSpeed();
                     }
                 }
+                // Remove collected/absorbed pellets
                 pelletsToRemove.forEach(pellet => {
                     const index = pellets.indexOf(pellet);
                     if (index !== -1) pellets.splice(index, 1);
                 });
+                // Pulse pushes on colliding pellet groups
                 if (collidingPelletGroups.length > 0) {
                     const playerMass = Math.PI * player.radius ** 2;
                     const totalMass = playerMass + totalPelletMass;
@@ -548,6 +698,7 @@
                     player.velocityX *= 1 - (totalPelletMass / totalMass);
                     player.velocityY *= 1 - (totalPelletMass / totalMass);
                 }
+                // Fire cone pushes red pellets in a group
                 if (fireConePelletGroups.length > 0 && fireCone.active) {
                     const playerMass = Math.PI * player.radius ** 2;
                     const totalMass = playerMass + fireConePelletMass;
@@ -577,13 +728,23 @@
                     player.velocityY *= 1 - (fireConePelletMass / totalMass);
                 }
             }
+
+            /**
+             * Renders the fog of war effect, with a clear circle at the player's location.
+             * @param {number} centerX - X coordinate of player on canvas
+             * @param {number} centerY - Y coordinate of player on canvas
+             * @param {number} visibleRadius - Radius of visible area (no fog)
+             */
             function renderFog(centerX, centerY, visibleRadius) {
+                // Create overlay canvas
                 const fogCanvas = document.createElement('canvas');
                 fogCanvas.width = canvas.width;
                 fogCanvas.height = canvas.height;
                 const fogCtx = fogCanvas.getContext('2d');
+                // Fill full canvas with dark fog
                 fogCtx.fillStyle = 'rgba(30, 30, 30, 1.0)';
                 fogCtx.fillRect(0, 0, canvas.width, canvas.height);
+                // Create a transparent hole using a radial gradient
                 const fogGradient = fogCtx.createRadialGradient(
                     centerX, centerY, 0,
                     centerX, centerY, visibleRadius
@@ -596,8 +757,14 @@
                 fogCtx.beginPath();
                 fogCtx.arc(centerX, centerY, visibleRadius, 0, Math.PI * 2);
                 fogCtx.fill();
+                // Overlay fog on main canvas
                 ctx.drawImage(fogCanvas, 0, 0);
             }
+
+            /**
+             * Updates the frost (ice power) effect, handling phase transitions and timers.
+             * No parameters. No return value.
+             */
             function updateFrost() {
                 if (!frost.active) return;
                 if (frost.phase === 'growing') {
@@ -627,6 +794,11 @@
                     }
                 }
             }
+
+            /**
+             * Updates the fire cone (fire power) effect, handling duration timer.
+             * No parameters. No return value.
+             */
             function updateFireCone() {
                 if (!fireCone.active) return;
                 fireCone.timer--;
@@ -635,6 +807,11 @@
                     fireCone.timer = 0;
                 }
             }
+
+            /**
+             * Resizes all canvases to match window size and redraws backdrop.
+             * No parameters. No return value.
+             */
             function resizeCanvas() {
                 [backdropCanvas, bgGridCanvas, iceCanvas, canvas].forEach(c => {
                     c.width = window.innerWidth;
@@ -642,12 +819,19 @@
                 });
                 drawBackdrop();
             }
+
+            /**
+             * Main game loop: updates game state and renders all layers.
+             * No parameters. No return value.
+             */
             function gameLoop() {
                 try {
+                    // Update all game logic
                     handlePlayerMovement();
                     updatePelletMovement();
                     updateFrost();
                     updateFireCone();
+                    // Draw backgrounds and effects
                     drawGrid();
                     drawIce();
                     drawFireCone();
@@ -655,6 +839,7 @@
                     let currentRadius = getPlayerCurrentRadius();
                     const centerX = canvas.width / 2;
                     const centerY = canvas.height / 2;
+                    // Draw each pellet
                     pellets.forEach(pellet => {
                         const screenX = centerX + pellet.x - camera.x;
                         const screenY = centerY + pellet.y - camera.y;
@@ -663,6 +848,7 @@
                         ctx.fillStyle = pellet.color;
                         ctx.fill();
                     });
+                    // Draw player glow and player itself
                     drawPlayerGlow(centerX, centerY);
                     ctx.beginPath();
                     ctx.arc(centerX, centerY, currentRadius, 0, Math.PI * 2);
@@ -671,16 +857,23 @@
                     ctx.strokeStyle = player.borderColor;
                     ctx.lineWidth = 2;
                     ctx.stroke();
+                    // Fog of war effect
                     renderFog(centerX, centerY, player.radius * 8);
+                    // Handle all collisions and update UI
                     handlePlayerPelletCollisions();
                     handlePelletToPelletCollisions();
                     coordDisplay.textContent = `${Math.round(camera.x)}, ${Math.round(-camera.y)}`;
+                    // Next animation frame
                     requestAnimationFrame(gameLoop);
                 } catch (error) {
                     console.error('Game loop error:', error);
                 }
             }
+
+            // Respond to window resize
             window.addEventListener('resize', resizeCanvas);
+
+            // Initial resize and start game
             try {
                 resizeCanvas();
                 gameLoop();
